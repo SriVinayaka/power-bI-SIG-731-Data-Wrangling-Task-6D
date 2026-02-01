@@ -1,0 +1,122 @@
+
+
+
+
+let
+    // -------------------------------------------------------
+    // 1. Load raw weather Excel file
+    // -------------------------------------------------------
+    Source = Excel.Workbook(
+        File.Contents("D:/power-bi/SIG-731-Data-Wrangling-Task-6D/data/raw_weather.xlsx"),
+        null,
+        true
+    ),
+
+    // -------------------------------------------------------
+    // 2. Select first sheet
+    // -------------------------------------------------------
+    SheetsOnly = Table.SelectRows(Source, each [Kind] = "Sheet"),
+    RawData = SheetsOnly{0}[Data],
+
+    // -------------------------------------------------------
+    // 3. Promote headers
+    // -------------------------------------------------------
+    PromotedHeaders = Table.PromoteHeaders(
+        RawData,
+        [PromoteAllScalars = true]
+    ),
+
+    // -------------------------------------------------------
+    // 4. Set correct data types
+    // -------------------------------------------------------
+    ChangedTypes = Table.TransformColumnTypes(
+        PromotedHeaders,
+        {
+            {"origin", type text},
+            {"year", Int64.Type},
+            {"month", Int64.Type},
+            {"day", Int64.Type},
+            {"hour", Int64.Type},
+            {"wind_speed", type number}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 5. Normalize origin column
+    // -------------------------------------------------------
+    CleanOrigin = Table.TransformColumns(
+        ChangedTypes,
+        {
+            {"origin", each Text.Upper(Text.Trim(_)), type text}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 6. Filter for LGA only
+    // -------------------------------------------------------
+    FilteredLGA = Table.SelectRows(
+        CleanOrigin,
+        each [origin] = "LGA"
+    ),
+
+    // -------------------------------------------------------
+    // 7. Convert wind speed from mph → m/s
+    // -------------------------------------------------------
+    WindSpeedToMS = Table.TransformColumns(
+        FilteredLGA,
+        {
+            {"wind_speed", each _ * 0.44704, type number}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 8. Group by day → daily mean wind speed
+    // -------------------------------------------------------
+    GroupedDailyMean = Table.Group(
+        WindSpeedToMS,
+        {"year", "month", "day"},
+        {
+            {
+                "daily_mean_wind_speed",
+                each List.Average([wind_speed]),
+                type number
+            }
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 9. Create date column
+    // -------------------------------------------------------
+    AddedDate = Table.AddColumn(
+        GroupedDailyMean,
+        "date",
+        each #date([year], [month], [day]),
+        type date
+    ),
+
+    // -------------------------------------------------------
+    // 10. Sort by date
+    // -------------------------------------------------------
+    SortedByDate = Table.Sort(
+        AddedDate,
+        {{"date", Order.Ascending}}
+    ),
+
+    // -------------------------------------------------------
+    // 11. Final column order
+    // -------------------------------------------------------
+    FinalTable = Table.ReorderColumns(
+        SortedByDate,
+        {
+            "date",
+            "year",
+            "month",
+            "day",
+            "daily_mean_wind_speed"
+        }
+    )
+
+in
+    FinalTable
+
+

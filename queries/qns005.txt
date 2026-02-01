@@ -1,0 +1,139 @@
+
+let
+    // =========================
+    // LOAD EXCEL DATA
+    // =========================
+
+    Source = Excel.Workbook(
+        File.Contents("D:/power-bi/SIG-731-Data-Wrangling-Task-6D/data/raw_weather.xlsx"),
+        null,
+        true
+    ),
+
+    RawWeatherSheet = Source{[Item="raw_weather", Kind="Sheet"]}[Data],
+
+    PromotedHeaders = Table.PromoteHeaders(
+        RawWeatherSheet,
+        [PromoteAllScalars=true]
+    ),
+
+    // =========================
+    // SAFE TYPE CONVERSION
+    // =========================
+
+    SafeTypes = Table.TransformColumns(
+        PromotedHeaders,
+        {
+            {"origin", each Text.From(_), type text},
+
+            {"year", each try Int64.From(_) otherwise null, Int64.Type},
+            {"month", each try Int64.From(_) otherwise null, Int64.Type},
+            {"day", each try Int64.From(_) otherwise null, Int64.Type},
+            {"hour", each try Int64.From(_) otherwise null, Int64.Type},
+
+            {"wind_speed", each try Number.From(_) otherwise null, type number}
+        }
+    ),
+
+    // =========================
+    // CORRECTED DATETIME
+    // =========================
+
+    AddedCorrectedTime = Table.AddColumn(
+        SafeTypes,
+        "CorrectedTime",
+        each
+            if [year] <> null and [month] <> null and [day] <> null and [hour] <> null
+            then #datetime([year], [month], [day], [hour], 0, 0)
+            else null,
+        type datetime
+    ),
+
+    // =========================
+    // SI UNIT CONVERSION
+    // =========================
+
+    WindSpeed_ms = Table.AddColumn(
+        AddedCorrectedTime,
+        "wind_speed_ms",
+        each if [wind_speed] <> null then [wind_speed] * 0.44704 else null,
+        type number
+    ),
+
+    // =========================
+    // DAILY MEAN WIND SPEED
+    // =========================
+
+    AddedDate = Table.AddColumn(
+        WindSpeed_ms,
+        "Date",
+        each if [CorrectedTime] <> null then Date.From([CorrectedTime]) else null,
+        type date
+    ),
+
+    DailyMeanWind = Table.Group(
+        AddedDate,
+        {"origin", "Date"},
+        {
+            {
+                "daily_mean_wind_ms",
+                each List.Average(List.RemoveNulls([wind_speed_ms])),
+                type number
+            }
+        }
+    ),
+
+    // =========================
+    // IQR OUTLIER REMOVAL (SAFE)
+    // =========================
+
+    NonNullValues =
+        List.RemoveNulls(DailyMeanWind[daily_mean_wind_ms]),
+
+    Q1 = List.Percentile(NonNullValues, 0.25),
+    Q3 = List.Percentile(NonNullValues, 0.75),
+    IQR = Q3 - Q1,
+
+    LowerBound = Q1 - 1.5 * IQR,
+    UpperBound = Q3 + 1.5 * IQR,
+
+    DailyNoOutliers = Table.SelectRows(
+        DailyMeanWind,
+        each
+            [daily_mean_wind_ms] <> null and
+            [daily_mean_wind_ms] >= LowerBound and
+            [daily_mean_wind_ms] <= UpperBound
+    ),
+
+    // =========================
+    // MONTHLY MEAN (NO OUTLIERS)
+    // =========================
+
+    AddedYear = Table.AddColumn(
+        DailyNoOutliers,
+        "Year",
+        each Date.Year([Date]),
+        Int64.Type
+    ),
+
+    AddedMonth = Table.AddColumn(
+        AddedYear,
+        "Month",
+        each Date.Month([Date]),
+        Int64.Type
+    ),
+
+    MonthlyMeanWind = Table.Group(
+        AddedMonth,
+        {"origin", "Year", "Month"},
+        {
+            {
+                "monthly_mean_wind_ms",
+                each List.Average(List.RemoveNulls([daily_mean_wind_ms])),
+                type number
+            }
+        }
+    )
+
+in
+    MonthlyMeanWind

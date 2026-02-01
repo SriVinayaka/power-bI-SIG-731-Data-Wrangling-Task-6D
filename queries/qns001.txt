@@ -1,0 +1,146 @@
+
+
+
+
+let
+    // -------------------------------------------------------
+    // 1. Load raw weather Excel file
+    // -------------------------------------------------------
+    Source = Excel.Workbook(
+        File.Contents("D:/power-bi/SIG-731-Data-Wrangling-Task-6D/data/raw_weather.xlsx"),
+        null,
+        true
+    ),
+
+    // -------------------------------------------------------
+    // 2. Select first sheet
+    // -------------------------------------------------------
+    SheetsOnly = Table.SelectRows(Source, each [Kind] = "Sheet"),
+    RawData = SheetsOnly{0}[Data],
+
+    // -------------------------------------------------------
+    // 3. Promote headers
+    // -------------------------------------------------------
+    PromotedHeaders = Table.PromoteHeaders(
+        RawData,
+        [PromoteAllScalars = true]
+    ),
+
+    // -------------------------------------------------------
+    // 4. Enforce correct data types
+    // -------------------------------------------------------
+    ChangedTypes = Table.TransformColumnTypes(
+        PromotedHeaders,
+        {
+            {"origin", type text},
+            {"year", Int64.Type},
+            {"month", Int64.Type},
+            {"day", Int64.Type},
+            {"hour", Int64.Type},
+            {"time_hour", type any},   // faulty column (will be removed)
+            {"temp", type number},
+            {"dewp", type number},
+            {"humid", type number},
+            {"wind_dir", type number},
+            {"wind_speed", type number},
+            {"wind_gust", type number},
+            {"precip", type number},
+            {"pressure", type number},
+            {"visib", type number}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 5. REMOVE faulty time_hour column
+    // -------------------------------------------------------
+    RemovedFaultyTimeHour = Table.RemoveColumns(
+        ChangedTypes,
+        {"time_hour"}
+    ),
+
+    // -------------------------------------------------------
+    // 6. Create correct time_hour column
+    // -------------------------------------------------------
+    AddedCorrectedTimeHour = Table.AddColumn(
+        RemovedFaultyTimeHour,
+        "time_hour",
+        each #datetime([year], [month], [day], [hour], 0, 0),
+        type datetime
+    ),
+
+    // -------------------------------------------------------
+    // 7. Normalize origin column
+    // -------------------------------------------------------
+    CleanOrigin = Table.TransformColumns(
+        AddedCorrectedTimeHour,
+        {
+            {"origin", each Text.Upper(Text.Trim(_)), type text}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 8. Convert units to SI / metric
+    // -------------------------------------------------------
+
+    // Fahrenheit → Celsius
+    TempToCelsius = Table.TransformColumns(
+        CleanOrigin,
+        {
+            {"temp", each (_ - 32) * 5 / 9, type number},
+            {"dewp", each (_ - 32) * 5 / 9, type number}
+        }
+    ),
+
+    // mph → m/s
+    WindToMS = Table.TransformColumns(
+        TempToCelsius,
+        {
+            {"wind_speed", each _ * 0.44704, type number},
+            {"wind_gust", each _ * 0.44704, type number}
+        }
+    ),
+
+    // inches → millimetres
+    PrecipToMM = Table.TransformColumns(
+        WindToMS,
+        {
+            {"precip", each _ * 25.4, type number}
+        }
+    ),
+
+    // miles → kilometres
+    VisibToKM = Table.TransformColumns(
+        PrecipToMM,
+        {
+            {"visib", each _ * 1.60934, type number}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 9. Final column order
+    // -------------------------------------------------------
+    FinalTable = Table.ReorderColumns(
+        VisibToKM,
+        {
+            "origin",
+            "year",
+            "month",
+            "day",
+            "hour",
+            "time_hour",
+            "temp",
+            "dewp",
+            "humid",
+            "wind_dir",
+            "wind_speed",
+            "wind_gust",
+            "precip",
+            "pressure",
+            "visib"
+        }
+    )
+
+in
+    FinalTable
+
+

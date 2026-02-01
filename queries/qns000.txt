@@ -1,0 +1,100 @@
+
+
+
+
+
+
+let
+    // -------------------------------------------------------
+    // 1. Load raw weather Excel file
+    // -------------------------------------------------------
+    Source = Excel.Workbook(
+        File.Contents("D:/power-bi/SIG-731-Data-Wrangling-Task-6D/data/raw_weather.xlsx"),
+        null,
+        true
+    ),
+
+    // -------------------------------------------------------
+    // 2. Select the correct sheet (usually first one)
+    // -------------------------------------------------------
+    WeatherSheet = Source{0}[Data],
+
+    // -------------------------------------------------------
+    // 3. Promote headers
+    // -------------------------------------------------------
+    PromotedHeaders = Table.PromoteHeaders(
+        WeatherSheet,
+        [PromoteAllScalars = true]
+    ),
+
+    // -------------------------------------------------------
+    // 4. Set correct data types
+    // -------------------------------------------------------
+    ChangedTypes = Table.TransformColumnTypes(
+        PromotedHeaders,
+        {
+            {"origin", type text},
+            {"year", Int64.Type},
+            {"month", Int64.Type},
+            {"day", Int64.Type},
+            {"hour", Int64.Type},
+            {"temp", type number},
+            {"dewp", type number},
+            {"humid", type number},
+            {"wind_dir", type number},
+            {"wind_speed", type number},
+            {"wind_gust", type number},
+            {"precip", type number},
+            {"pressure", type number},
+            {"visib", type number},
+            {"time_hour", type text}
+        }
+    ),
+
+    // -------------------------------------------------------
+    // 5. FIX time_hour bug (DO NOT rely on original column)
+    //    Create correct datetime from year, month, day, hour
+    // -------------------------------------------------------
+    AddedCorrectedTime = Table.AddColumn(
+        ChangedTypes,
+        "time_hour_corrected",
+        each #datetime([year], [month], [day], [hour], 0, 0),
+        type datetime
+    ),
+
+    // -------------------------------------------------------
+    // 6. (Optional but recommended) Remove faulty time_hour
+    // -------------------------------------------------------
+    RemovedFaultyTimeHour = Table.RemoveColumns(
+        AddedCorrectedTime,
+        {"time_hour"}
+    ),
+
+    // -------------------------------------------------------
+    // 7. Reorder columns neatly
+    // -------------------------------------------------------
+    ReorderedColumns = Table.ReorderColumns(
+        RemovedFaultyTimeHour,
+        {
+            "origin",
+            "year",
+            "month",
+            "day",
+            "hour",
+            "time_hour_corrected",
+            "temp",
+            "dewp",
+            "humid",
+            "wind_dir",
+            "wind_speed",
+            "wind_gust",
+            "precip",
+            "pressure",
+            "visib"
+        }
+    )
+
+in
+    ReorderedColumns
+
+
